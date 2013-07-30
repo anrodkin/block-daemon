@@ -1,0 +1,11 @@
+#!/bin/bash
+
+cp ./bd /usr/sbin/bd
+cp ./bd.conf /etc/bd.conf
+cp ./bdd /etc/init.d/bd
+ln -fs /usr/sbin/bd /usr/sbin/lock_cluster
+ln -fs /usr/sbin/bd /usr/sbin/unlock_cluster
+chkconfig --add bd
+service bd start
+
+

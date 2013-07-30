@@ -1,0 +1,95 @@
+#!/bin/sh
+#
+# BD          Start/Stop the BD.
+#
+# chkconfig: 345 50 50
+# description: bdd
+
+
+
+RETVAL=0
+prog="bd"
+exec=/usr/sbin/bd
+lockfile=/var/lock/subsys/$prog
+#pidfile=/var/run/$prog.pid
+config=/etc/sysconfig/$prog
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+[ -e /etc/sysconfig/$prog ] && . /etc/sysconfig/$prog
+
+start() {
+    if [ $UID -ne 0 ] ; then
+        echo "User has insufficient privilege."
+        exit 4
+    fi
+    echo -n $"Starting $prog: "
+    daemon $prog $BDARGS
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && touch $lockfile
+}
+
+stop() {
+    if [ $UID -ne 0 ] ; then
+        echo "User has insufficient privilege."
+        exit 4
+    fi
+    echo -n $"Stopping $prog: "
+	if [ -n "`pidfileofproc $exec`" ]; then
+		killproc $exec
+		RETVAL=3
+	else
+		failure $"Stopping $prog"
+	fi
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && rm -f $lockfile
+}
+
+restart() {
+    stop
+    start
+}
+
+reload() {
+    restart
+}
+
+force_reload() {
+	# new configuration takes effect after restart
+    restart
+}
+
+rh_status() {
+    # run checks to determine if the service is running or use generic status
+    status $exec
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 0
+        $1
+        ;;
+    restart)
+        $1
+        ;;
+    status)
+        rh_status
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart}"
+        exit 2
+esac
+exit $?
+

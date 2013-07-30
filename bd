@@ -1,0 +1,138 @@
+#!/usr/bin/env perl
+# Andrey Rodkin (andrey.rodkin@gmail.com)
+
+use warnings;
+use strict;
+use POSIX;
+use Getopt::Long;
+use Data::Dumper;
+
+die( "Isn't ROOT!" ) if $< != 0; # exit if not root
+
+my $config_path    = undef;
+my $pid_path       = undef;
+my $lock_path      = undef;
+my $allowed_user   = undef;
+my $check_interval = undef;
+my $signal         = undef;
+my $message        = undef;
+my $lock           = undef;
+my $unlock         = undef;
+my %config         = ();
+my $config_path_default    = "/etc/bd.conf";
+my $pid_path_default       = "/var/run/bd.pid";
+my $lock_path_default      = "/var/lock/bd";
+my $allowed_user_default   = "bmpibot";
+my $check_interval_default = 60;
+my $signal_default         = "SIGKILL";
+my $message_default        = "Access denied because of performance testing is running.\n";
+
+$config_path = $config_path_default if ! $config_path;
+$pid_path = $pid_path_default if ! $pid_path;
+$lock = 1 if( $0 =~ m/lock_cluster/ ); 
+$unlock = 1 if( $0 =~ m/unlock_cluster/ ); 
+
+initialize();
+
+if( $unlock ) {
+    unlink( $lock_path ) or die;
+    exit();
+}
+
+if( $lock ) {
+    open( LOCK, ">", $lock_path ) or die;
+    print LOCK "Lock file for bd";
+    close( LOCK );
+    exit();
+}
+
+my $pid = fork();
+exit() if $pid;
+die "Couldn't fork: $!\n" unless defined( $pid );
+POSIX::setsid() or die "Can't start a new session: $!\n";
+
+open( PID, ">", $pid_path ) or die;
+print PID $$;
+close( PID );
+
+$SIG{TERM} = \&sigterm_handler;
+$SIG{KILL} = \&sigkill_handler;
+$SIG{HUP}  = \&sighup_handler;
+#$SIG{CHLD} = \&sigchld_handler; # 
+
+while(1) {
+    if( -e $lock_path ) {
+        open( PSOUT, "-|", "ps axfh -o user,pid,tty,vsz,args | sed -r 's/ +/,/g'" ) or die;
+        my @psout = <PSOUT>;
+        close( PSOUT );
+
+        foreach my $line ( @psout ) {
+            chomp $line;
+            my ( $user, $pid, $tty, $vsz, $args ) = split( /,/, $line );
+    
+            if( ! ( $user =~ /$allowed_user/ ||       # if not allower user
+                  ( $tty =~ /^\?$/ && 0 == $vsz ) ||  # if not a system process
+                  ( $tty =~ /^\?$/ && 0 != $vsz ) ||  # if not a daemon
+                  $args =~ /mingetty/ ) ) {           # if not a mingetty process
+            
+                if( -d "/proc/$pid" ) {               # if process still alive
+                    if( open( TTY, ">/dev/$tty" ) ) {
+                        print TTY $message;
+                        close( TTY );
+                    }
+                    kill( $signal, $pid);            # KILL THEM ALL!!! :-)
+                }
+            }
+        }    
+    }
+
+    sleep $check_interval;
+}
+
+
+sub initialize {
+    read_config( $config_path, \%config );
+    $allowed_user   = ( defined( $config{allowed_user} ) && $config{allowed_user} ) ? $config{allowed_user} : $allowed_user_default;
+    $check_interval = ( defined( $config{check_interval} ) && $config{check_interval} ) ? $config{check_interval} : $check_interval_default;
+    $signal         = ( defined( $config{signal} ) &&  $config{signal} ) ? $config{signal} : $signal_default;
+    $lock_path      = ( defined( $config{lock_path} ) && $config{lock_path} ) ? $config{lock_path} : $lock_path_default;
+    $message        = ( defined( $config{message} ) && $config{message} ) ? $config{message} : $message_default;
+}
+
+sub read_config {
+    my ( $config_path, $config_ref ) = @_;
+    
+    if( open( CONFIG, "<", $config_path ) ) {
+        my @lines = <CONFIG>;
+        close( CONFIG );
+
+        foreach my $line ( @lines ) {
+            chomp( $line );
+            next if $line =~ m/^.*#.*$/;
+            if( $line =~ m/^\s*(\S+)\s*=\s*(\S+)\s*$/ ) {
+                $$config_ref{$1} = $2;
+            }
+        }
+    }
+}
+
+sub sigterm_handler {
+    unlink( $pid_path );
+    exit();
+}
+
+sub sigkill_handler {
+    unlink( $pid_path );
+    exit();
+}
+
+sub sigchld_handler {
+    while( ( my $waitpid = waitpid( -1, &POSIX::WHOHANG ) ) > 0 ) {
+        $SIG{CHLD} = \&sigchld_handler;
+    }
+    exit();
+}
+
+sub sighup_handler {
+    initialize();
+}

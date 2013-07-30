@@ -1,0 +1,12 @@
+#!/bin/bash
+
+unlock_cluster
+service bd stop
+chkconfig --del bd
+rm -f /usr/sbin/bd
+rm -f /etc/bd.conf
+rm -f /etc/init.d/bd
+rm -f /usr/sbin/lock_cluster
+rm -f /usr/sbin/unlock_cluster
+
+
